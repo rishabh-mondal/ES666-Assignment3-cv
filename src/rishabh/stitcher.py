@@ -66,20 +66,6 @@ class PanaromaStitcher():
 
     
     def get_homography_with_ransac(self,img1: np.array, img2: np.array) -> np.array:
-        """Estimate best homography using ransac
-
-        Parameters
-        ----------
-        img1 : np.array
-            Source Image
-        img2 : np.array
-            Destination Image
-
-        Returns
-        -------
-        np.array
-            Homography matrix
-        """
         M1, N1, _ = img1.shape
         M2, N2, _ = img2.shape
         # Perform feature matching
@@ -240,22 +226,6 @@ class PanaromaStitcher():
 
     
     def cylindrical_warp(self, img: np.array, f: float) -> np.array:
-        """This function returns the cylindrical warp for a given image and focal length.
-        This step is just a pre-processing step. If not done, the middle part of the 
-        stitched image would be smaller and the parts near the left and right edges would
-        be very large resulting into very large final_image.
-        Parameters
-        ----------
-        img : np.array
-            Image
-        f : float
-            focal length in pixels
-
-        Returns
-        -------
-        np.array
-            Cylindrically warped image based on provided focal length
-        """
         h_,w_ = img.shape[:2]
         K = np.array([[f,0,w_/2],[0,f,h_/2],[0,0,1]])
         # pixel coordinates
@@ -267,41 +237,19 @@ class PanaromaStitcher():
         # calculate cylindrical coords (sin\theta, h, cos\theta)
         A = np.stack([np.sin(X[:,0]),X[:,1],np.cos(X[:,0])],axis=-1).reshape(w_*h_,3)
         B = (K @ A.T).T # project back to image-pixels plane  by apllying camera intrinsic matrix 
-        # back from homog coords
         B = B[:,:-1] / B[:,[-1]]
-        # make sure warp coords only within image bounds
         B[(B[:,0] < 0) | (B[:,0] >= w_) | (B[:,1] < 0) | (B[:,1] >= h_)] = -1
         B = B.reshape(h_,w_,-1)
-        # map img to new coordinates. Used remap 
         return cv2.remap(img, B[:,:,0].astype(np.float32), B[:,:,1].astype(np.float32), cv2.INTER_AREA, borderMode=cv2.BORDER_CONSTANT)
 
     
     def make_panaroma_for_images_in(self,path):
         imf = path
         all_images = sorted(glob.glob(imf+os.sep+'*'))
-
-        ####  Your Implementation here
-        #### you can use functions, class_methods, whatever!! Examples are illustrated below. Remove them and implement yours.
-        #### Just make sure to return final stitched image and all Homography matrices from here
         homography_matrix_list =[]
-
-        ## Estimate focal length for cylindrical warping.
         focal_lengths = [self.get_focal_in_pixels(i) for i in all_images]
-
-        ## Preprocessing step: Cylindrical warping. If not done, the middle part of the 
-        ## stitched image would be smaller and the parts near the left and right edges would
-        ## be very large resulting into very large final_image. Check function definition for 
-        ## more info.
         all_images = [self.cylindrical_warp(cv2.imread(i), f) for i,f  in zip(all_images, focal_lengths)]
-
-        # for i in all_images:
-        #     cv2.imshow('test2', i)
-        #     cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-
         print('Found {} Images for stitching'.format(len(all_images)))
-
-        ## Stitch images from middle towards edges
         num_images = len(all_images)
         mid = num_images // 2
         left, right = all_images[:mid], all_images[mid:]
@@ -334,10 +282,5 @@ class PanaromaStitcher():
             homography = self.get_homography_with_ransac(right[0], stitched_image)
             stitched_image = self.stitch_image(right[0], stitched_image, homography)
             homography_matrix_list.append(homography)
-        
-        # Collect all homographies calculated for pair of images and return
-        # Return Final panaroma
-        stitched_image = stitched_image
-        #####
-        
+        stitched_image = stitched_image        
         return stitched_image, homography_matrix_list 
