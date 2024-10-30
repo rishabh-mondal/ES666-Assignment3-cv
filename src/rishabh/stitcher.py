@@ -210,23 +210,8 @@ class PanaromaStitcher():
         return blended_image
     
     def get_focal_in_pixels(self, img_path: str) -> float:
-        """Estimate focal length from EXIF data and camera model. Focal length and model is
-        reteived from EXIF and sensor size from online DB (https://www.digicamdb.com/) for 
-        corresponding model. This is needed for cylidrical warping. If image EXIF data could not be
-        accessed, it would assume FOV of 55 degrees.
-        Source of formula for estimating focal length in pixels: 
-        Link: https://answers.opencv.org/question/17076/conversion-focal-distance-from-mm-to-pixels/
 
-        Parameters
-        ----------
-        img_path : str
-            Path to image
 
-        Returns
-        -------
-        float
-            Focal length in pixel
-        """
         from PIL import Image
         ## sensor_width collected from camera specs
         ## model and focal length retreived from EXIF data
@@ -259,13 +244,6 @@ class PanaromaStitcher():
         This step is just a pre-processing step. If not done, the middle part of the 
         stitched image would be smaller and the parts near the left and right edges would
         be very large resulting into very large final_image.
-
-        Source:
-            1. The Ancient Secrets of Computer Vision - 07 - Matching, RANSAC, SIFT, and HOG
-                https://www.youtube.com/watch?v=taty6lPVcmA&list=PLjMXczUzEYcHvw5YYSU92WrY8IwhTuq7p&index=7
-            2. https://www.morethantechnical.com/blog/2018/10/30/cylindrical-image-warping-for-panorama-stitching/
-
-
         Parameters
         ----------
         img : np.array
