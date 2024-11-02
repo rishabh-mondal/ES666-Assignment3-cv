@@ -13,49 +13,35 @@ class PanaromaStitcher():
         # Function to detect and match keypoints in two images.
 
         # Initiate SIFT detector
-        sift = cv2.SIFT_create()
+        sift_indicator = cv2.SIFT_create()
  
         # find the keypoints and descriptors with SIFT
-        kp1, des1 = sift.detectAndCompute(query_img,None)
-        kp2, des2 = sift.detectAndCompute(train_img,None)
+        keypoint1, descriptor1 = sift_indicator.detectAndCompute(query_img,None)
+        keypoint2, descriptor2 = sift_indicator.detectAndCompute(train_img,None)
         
         # FLANN parameters
         FLANN_INDEX_KDTREE = 1
         index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
         search_params = dict(checks=50)   # or pass empty dictionary
         
-        flann = cv2.FlannBasedMatcher(index_params,search_params)
-        matches = flann.knnMatch(des1,des2,k=2)
+        flann_point = cv2.FlannBasedMatcher(index_params,search_params)
+        matches = flann_point.knnMatch(descriptor1,descriptor2,k=2)
         # Apply ratio test
         good = []
         for m,n in matches:
             if m.distance < 0.75*n.distance:
                 good.append(m)
         matches = good
-        key_points_1 = np.hstack([np.array([kp1[i.queryIdx].pt[0], kp1[i.queryIdx].pt[1], 1]).reshape(-1,1) for i in matches])
-        key_points_2 = np.hstack([np.array([kp2[i.trainIdx].pt[0], kp2[i.trainIdx].pt[1], 1]).reshape(-1,1) for i in matches])
+        key_points_1 = np.hstack([np.array([keypoint1[i.queryIdx].pt[0], keypoint1[i.queryIdx].pt[1], 1]).reshape(-1,1) for i in matches])
+        key_points_2 = np.hstack([np.array([keypoint2[i.trainIdx].pt[0], keypoint2[i.trainIdx].pt[1], 1]).reshape(-1,1) for i in matches])
         return (key_points_1, key_points_2)
-    
+
     def estimate_candidate_homography(self, kps_i: np.array, kpd_i: np.array) -> np.array:
-        """To compute homography
-
-        Parameters
-        ----------
-        kp1_i : np.array
-            keypoints of image 1
-        kp2_i : np.array
-            keypoints of image 2
-
-        Returns
-        -------
-        np.array
-            Homography matrix to transform image1 to image 2
-        """
         A = []
         for i in range(kps_i.shape[1]):
             A_i = np.block([
-                [ kps_i[:,i].reshape(1,-1),       np.zeros((1,3)),                     -1*kpd_i[0,i]*kps_i[:,i].reshape(1,-1)],
-                [ np.zeros((1,3)),                kps_i[:,i].reshape(1,-1),            -1*kpd_i[1,i]*kps_i[:,i].reshape(1,-1) ],
+                [ kps_i[:,i].reshape(1,-1),np.zeros((1,3)),-1*kpd_i[0,i]*kps_i[:,i].reshape(1,-1)],
+                [ np.zeros((1,3)),kps_i[:,i].reshape(1,-1), -1*kpd_i[1,i]*kps_i[:,i].reshape(1,-1) ],
             ])
             A.append(A_i)
         A = np.vstack(A)
@@ -70,7 +56,7 @@ class PanaromaStitcher():
         M2, N2, _ = img2.shape
         # Perform feature matching
         kp1, kp2 = self.get_matched_key_points(img1, img2)
-        # Normalize kps
+        # Normalize kps 
         t_1 = np.array([[2/N1, 0, -N1/2],[0, 2/M1, -M1/2],[0,0,1]])
         t_2 = np.array([[2/N2, 0, -N2/2],[0, 2/M2, -M2/2],[0,0,1]])
         kp1 = t_1 @ kp1
@@ -94,46 +80,22 @@ class PanaromaStitcher():
             num_inliers = inliers_idx.sum()
             if  num_inliers > max_inliers:
                 max_inliers = num_inliers
-                # best_homography = self.estimate_candidate_homography(kp1[:, inliers_idx], kp2[:, inliers_idx])
                 best_homography = H_i        
-        # Unnormalize homography matrix
         best_homography = np.linalg.inv(t_2) @ best_homography @ t_1
         best_homography = best_homography / best_homography[2,2]
         
         return best_homography
     
     def stitch_image(self,image1: np.array, image2: np.array, homography: np.array) -> np.array:
-        """Stitch image by performing warping and blending
-
-        Parameters
-        ----------
-        image1 : np.array
-            Image to warp
-        image2 : np.array
-            Image on whose plane image1 would be warped
-        homography : np.array
-            Homography from image1 to image2
-
-        Returns
-        -------
-        np.array
-            Stitched image
-        """
-
         image1 = image1.copy()
         image2 = image2.copy()
         source_bounds = np.array([
-            #top_left   top_right           bottom_right        bottom_left
-            [0,         image1.shape[1]-1,  image1.shape[1]-1,  0],                 #j
-            [0,         0,                  image1.shape[0]-1,  image1.shape[0]-1], #i
-            [1,         1,                  1,                  1]
+            [0,image1.shape[1]-1,image1.shape[1]-1,0],
+            [0,0,image1.shape[0]-1,image1.shape[0]-1],
+            [1,1, 1,1]
         ])
-
-        ## Find bounds of source on destination's plane
         s_bounds_d = homography @ source_bounds
         s_bounds_d = (s_bounds_d / s_bounds_d[-1,:].reshape(1,-1)).astype(np.int32)
-        
-        ## Calculate the final bounds for the two images in (j,i) format
         min_x = min(0, s_bounds_d[0,0], s_bounds_d[0,3])
         max_x = max(image2.shape[1]-1, s_bounds_d[0, 1], s_bounds_d[0, 2])
         min_y = min(0, s_bounds_d[1,0], s_bounds_d[1,1])
@@ -145,31 +107,29 @@ class PanaromaStitcher():
             [0, 1, -min_y],
             [0, 0, 1]
         ])
-
-        ## Final image dimension
-        final_shape = (max_y - min_y+1, max_x - min_x+1) # (HxW)
-        final_image = np.zeros(final_shape + (3,), dtype=np.uint8)
+        final_image_shape = (max_y - min_y+1, max_x - min_x+1) # (HxW)
+        final_image = np.zeros(final_image_shape + (3,), dtype=np.uint8)
 
         ## Get inverse transformation from location of stitched_image to image1
         H_dash = translation @ homography
         H_inv = np.linalg.inv(H_dash)
 
         ## Start warping 
-        warped_image = np.zeros(final_shape + (3,), dtype=np.uint8)
+        warped_image = np.zeros(final_image_shape + (3,), dtype=np.uint8)
 
         ## get coordinates of image1 from locations of final_image via inverse transformation
-        y_s, x_s = np.meshgrid(np.arange(final_shape[0]), np.arange(final_shape[1]), indexing='ij')
+        y_s, x_s = np.meshgrid(np.arange(final_image_shape[0]), np.arange(final_image_shape[1]), indexing='ij')
         y_s, x_s = y_s.flatten(), x_s.flatten()
         backward_points = np.vstack([x_s, y_s, np.ones(len(x_s), dtype=np.int64)])
         backward_points = H_inv @ backward_points
         backward_points = backward_points / backward_points[2]
-        y_s = backward_points[1,:].reshape(final_shape[0], final_shape[1])
-        x_s = backward_points[0,:].reshape(final_shape[0], final_shape[1])
+        y_s = backward_points[1,:].reshape(final_image_shape[0], final_image_shape[1])
+        x_s = backward_points[0,:].reshape(final_image_shape[0], final_image_shape[1])
         del backward_points
         
-        ## Get image1 intensities via nearest neighbour
-        for y_d in range(final_shape[0]):
-            for x_d in range(final_shape[1]):
+        ## Get image1 intensities via NN
+        for y_d in range(final_image_shape[0]):
+            for x_d in range(final_image_shape[1]):
                 ## Round coordinates to nearest integer to get nearest coordinates 
                 x_img1 = int(np.rint(x_s[y_d, x_d]))
                 y_img1 = int(np.rint(y_s[y_d, x_d]))
